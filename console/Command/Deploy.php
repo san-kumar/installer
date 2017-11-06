@@ -280,9 +280,9 @@ namespace Console\Command {
             }
 
             if (!empty($uri)) {
-                $output->write("Website deployed!\nTo access your site visit:\n$uri");
+                $output->writeln("Website deployed!\nTo access your site visit:\n$uri");
             } else {
-                $output->write("Could not access deployment uri.\nPlease check your AWS credentials!");
+                $output->writeln("Could not access deployment uri.\nPlease check your AWS credentials!");
             }
         }
     }
