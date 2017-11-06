@@ -1,0 +1,29 @@
+{
+  "name": "lambdaphp/installer",
+  "description": "Installer for lambdaphp",
+  "type": "library",
+  "require": {
+    "aws/aws-sdk-php": "^3.36",
+    "symfony/console": "^3.3",
+    "symfony/filesystem": "^3.3",
+    "symfony/finder": "^3.3",
+    "rdlowrey/auryn": "^1",
+    "piwik/ini": "^1"
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "San Kumar",
+      "email": "lambdaphp@gmail.com"
+    }
+  ],
+  "bin": [
+    "bin/lambdaphp"
+  ],
+  "autoload": {
+    "psr-4": {
+      "Console\\": "console/"
+    }
+  },
+  "minimum-stability": "dev"
+}

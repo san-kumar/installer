@@ -1,0 +1,21 @@
+#!/usr/bin/env php
+<?php
+
+namespace Bin {
+
+    use Auryn\Injector;
+    use Console\App\Config;
+    use Console\App\ConsoleApp;
+
+    $autoload = realpath('./../../autoload.php') ?: realpath(preg_replace('/(.*vendor).*/', '\\1/autoload.php', $argv[0]));
+    require_once($autoload);
+
+    $injector = new Injector();
+
+    $config = $injector->make(Config::class, [':baseDir' => dirname($autoload, 2)]);
+    $injector->share($config);
+
+    $console = $injector->make(ConsoleApp::class);
+
+    $console->run();
+}
