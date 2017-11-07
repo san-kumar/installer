@@ -9,6 +9,7 @@ namespace Console\App {
 
     use Console\Command\ConfigAws;
     use Console\Command\Deploy;
+    use Console\Command\Remove;
 
     class Commands {
         private $commands;
@@ -17,8 +18,9 @@ namespace Console\App {
          * Commands constructor.
          * @param ConfigAws $config
          * @param Deploy $deploy
+         * @param Remove $remove
          */
-        public function __construct(ConfigAws $config, Deploy $deploy) {
+        public function __construct(ConfigAws $config, Deploy $deploy, Remove $remove) {
             $this->commands = func_get_args();
         }
 

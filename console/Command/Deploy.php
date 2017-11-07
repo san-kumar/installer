@@ -121,7 +121,55 @@ namespace Console\Command {
 
                             $debug("Setting S3 and DynamoDB access");
 
-                            $policy = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"arn:aws:logs:*:*:*"},{"Effect":"Allow","Action":["s3:*"],"Resource":"*"},{"Effect":"Allow","Action":["dynamodb:*"],"Resource":"*"}]}';
+                            $policy = '{
+                              "Version": "2012-10-17",
+                              "Statement": [
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "logs:CreateLogGroup",
+                                    "logs:CreateLogStream",
+                                    "logs:PutLogEvents"
+                                  ],
+                                  "Resource": "arn:aws:logs:*:*:*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "s3:*"
+                                  ],
+                                  "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "dynamodb:*"
+                                  ],
+                                  "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "cognito-identity:*"
+                                  ],
+                                  "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "cognito-sync:*"
+                                  ],
+                                  "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "cognito-idp:*"
+                                  ],
+                                  "Resource": "*"
+                                }
+                              ]
+                            }';
 
                             $iam->putRolePolicy([
                                 'PolicyDocument' => $policy, // REQUIRED

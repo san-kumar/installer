@@ -6,7 +6,11 @@ $file = $_SERVER['SCRIPT_PATH'];
 
 if (is_file($file)) {
     try {
+        ini_set('display_errors', '1');
+        set_include_path(get_include_path() . PATH_SEPARATOR . $_SERVER['DOCUMENT_ROOT']);
+
         require_once('vendor/autoload.php');
+
         $ext = pathinfo($file, PATHINFO_EXTENSION);
 
         if ($ext == 'php') {
