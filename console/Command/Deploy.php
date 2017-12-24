@@ -51,7 +51,7 @@ namespace Console\Command {
 
         protected function execute(InputInterface $input, OutputInterface $output) {
             if ($dir = $this->config->getBaseDir()) {
-                $phpFiles = (new Finder())->in($dir)->exclude('vendor')->ignoreUnreadableDirs()->files();
+                $phpFiles = (new Finder())->in($dir)->notPath("(^vendor)")->ignoreUnreadableDirs();
                 $debug = function ($msg) use ($output) {
                     if ($output->isVerbose()) {
                         $output->writeln($msg);
