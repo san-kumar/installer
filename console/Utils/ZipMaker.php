@@ -45,7 +45,7 @@ namespace Console\Utils {
             if ($res === true) {
                 /** @var SplFileInfo $file */
                 foreach ($files as $file) {
-                    $zip->addFile($file->getRealPath(), $file->getRelativePathname());
+                    $zip->addFile($file->getRealPath(), strtr($file->getRelativePathname(), ['\\' => '/']));
                 }
 
                 $zip->close();
