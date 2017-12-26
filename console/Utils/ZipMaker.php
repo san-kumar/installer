@@ -33,7 +33,7 @@ namespace Console\Utils {
 
             if ($withWrapper) {
                 foreach (glob(dirname($wrapperZip) . "/*") as $file) {
-                    if (is_file($file) && (basename($file) != 'php')) {
+                    if (is_file($file) && (!preg_match('/^(php|wrapper\.zip)/', basename($file)))) {
                         array_unshift($files, new SplFileInfo($file, "", basename($file)));
                     }
                 }

@@ -323,14 +323,14 @@ namespace Console\Command {
                         $uri = sprintf('https://%s.execute-api.us-east-1.amazonaws.com/%s', $apiId, 'web');
                     }
 
-
+                    if (!empty($uri)) {
+                        $output->writeln("Website deployed!\nTo access your site visit:\n$uri");
+                    } else {
+                        $output->writeln("Could not access deployment uri.\nPlease check your AWS credentials!");
+                    }
+                } else {
+                    $output->writeln("Failed to create zip file.");
                 }
-            }
-
-            if (!empty($uri)) {
-                $output->writeln("Website deployed!\nTo access your site visit:\n$uri");
-            } else {
-                $output->writeln("Could not access deployment uri.\nPlease check your AWS credentials!");
             }
         }
     }
