@@ -12,25 +12,7 @@ exports.handler = function (event, context) {
         let env = environment.parse(event);
         let ext = env.SCRIPT_EXT;
 
-        if (ext !== 'php') {
-            let mimes = require('./mimes');
-            let reply = {
-                statusCode: 200,
-                headers: {
-                    'content-type': mimes[ext] || 'application/octet-stream',
-                    'pragma': 'public',
-                    'cache-control': 'max-age=2592000, public',
-                    'expires': new Date(Date.now() + 865400 * 3000).toUTCString(),
-                    'vary': 'Accept-Encoding',
-                    'last-modified': new Date("01/01/1980").toUTCString()
-                },
-                body: fs.readFileSync(env.SCRIPT_PATH).toString('base64'),
-                isBase64Encoded: true
-            };
-
-            context.succeed(reply);
-            //context.succeed({statusCode: 200, body: JSON.stringify(reply)});
-        } else {
+        if (ext === 'php') {
             let proc = child_process.spawn('./php', [{stdio: 'inherit'}], {env: env});
             let body;
 
@@ -66,6 +48,24 @@ exports.handler = function (event, context) {
                 //context.succeed({statusCode: 200, body: JSON.stringify(event)});
                 //context.succeed({statusCode: 200, body: JSON.stringify(reply)});
             });
+        } else {
+            let mimes = require('./mimes');
+            let reply = {
+                statusCode: 200,
+                headers: {
+                    'content-type': mimes[ext] || 'application/octet-stream',
+                    'pragma': 'public',
+                    'cache-control': 'max-age=2592000, public',
+                    'expires': new Date(Date.now() + 865400 * 3000).toUTCString(),
+                    'vary': 'Accept-Encoding',
+                    'last-modified': new Date("01/01/1980").toUTCString()
+                },
+                body: fs.readFileSync(env.SCRIPT_PATH).toString('base64'),
+                isBase64Encoded: true
+            };
+
+            context.succeed(reply);
+            //context.succeed({statusCode: 200, body: JSON.stringify(reply)});
         }
     } catch (e) {
         context.succeed({statusCode: 200, body: 'error'});

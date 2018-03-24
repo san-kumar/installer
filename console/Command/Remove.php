@@ -9,6 +9,7 @@
 namespace Console\Command {
 
     use Aws\ApiGateway\ApiGatewayClient;
+    use Aws\CloudWatchEvents\CloudWatchEventsClient;
     use Aws\DynamoDb\DynamoDbClient;
     use Aws\Iam\IamClient;
     use Aws\Lambda\LambdaClient;
@@ -17,7 +18,6 @@ namespace Console\Command {
     use Symfony\Component\Console\Command\Command;
     use Symfony\Component\Console\Input\InputInterface;
     use Symfony\Component\Console\Output\OutputInterface;
-    use Symfony\Component\Finder\Finder;
 
     class Remove extends Command {
         /**
@@ -31,8 +31,10 @@ namespace Console\Command {
 
         /**
          * Deploy constructor.
-         * @param Config $config
+         *
+         * @param Config   $config
          * @param ZipMaker $zipMaker
+         *
          * @internal param Finder $finder
          */
         public function __construct(Config $config, ZipMaker $zipMaker) {
@@ -62,8 +64,30 @@ namespace Console\Command {
             $lambdaClient = new LambdaClient($args);
 
             try {
-                $debug("Removing lambda function");
-                $lambdaClient->deleteFunction(['FunctionName' => $fn]);
+                $result = $lambdaClient->getFunction(['FunctionName' => $fn]);
+                $func = $result->get('Configuration');
+            } catch (\Exception $e) {
+            }
+
+            try {
+                if (!empty($func['FunctionArn'])) {
+                    $debug("Removing cron jobs");
+                    $cloudWatchEventsClient = new CloudWatchEventsClient($args);
+                    $result = $cloudWatchEventsClient->ListRuleNamesByTarget(['TargetArn' => $func['FunctionArn'],]);
+
+                    foreach ($result->get('RuleNames') as $ruleName) {
+                        $debug("Deleting cron job: $ruleName");
+
+                        $result = $cloudWatchEventsClient->listTargetsByRule(['Rule' => $ruleName]);
+                        $targets = array_map(function ($t) { return $t['Id']; }, $result->get('Targets') ?? []);
+
+                        if (!empty($targets)) {
+                            $cloudWatchEventsClient->removeTargets(['Ids' => $targets, 'Rule' => $ruleName]);
+                        }
+
+                        $cloudWatchEventsClient->deleteRule(['Name' => $ruleName]);
+                    }
+                }
             } catch (\Exception $e) {
             }
 
@@ -93,15 +117,25 @@ namespace Console\Command {
             } catch (\Throwable $e) {
             }
 
-            $apiClient = new ApiGatewayClient($args);
-            $apiName = "$fn server";
-            $apis = $apiClient->getIterator('GetRestApis');
+            try {
+                $debug("Removing lambda function");
+                $lambdaClient->deleteFunction(['FunctionName' => $fn]);
+            } catch (\Exception $e) {
+            }
 
-            foreach ($apis as $api) {
-                if (strcasecmp($api['name'], $apiName) === 0) {
-                    $debug('Removing API gateway');
-                    $apiClient->deleteRestApi(['restApiId' => $api['id']]);
+            try {
+                $apiClient = new ApiGatewayClient($args);
+                $apiName = "$fn server";
+                $apis = $apiClient->getIterator('GetRestApis');
+
+                foreach ($apis as $api) {
+                    if (strcasecmp($api['name'], $apiName) === 0) {
+                        $debug('Removing API gateway');
+                        $apiClient->deleteRestApi(['restApiId' => $api['id']]);
+                    }
                 }
+            } catch (\Exception $e) {
+                $debug("Error removing API gateway (are you using custom domain?)\n" . $e->getMessage());
             }
         }
     }

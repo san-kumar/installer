@@ -46,6 +46,7 @@ namespace Console\Utils {
                 /** @var SplFileInfo $file */
                 foreach ($files as $file) {
                     if (!$file->isDir()) {
+                        #echo $file->getRealPath(), "\n";
                         $zip->addFile($file->getRealPath(), strtr($file->getRelativePathname(), ['\\' => '/']));
                     }
                 }

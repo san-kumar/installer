@@ -26,7 +26,8 @@ namespace Console\App {
 
         /**
          * Config constructor.
-         * @param string $baseDir
+         *
+         * @param string    $baseDir
          * @param IniReader $reader
          * @param IniWriter $writer
          */
@@ -36,16 +37,29 @@ namespace Console\App {
             $this->writer = $writer;
         }
 
-        protected function getConfigFile(string $key) {
-            return preg_match('/^(name|ram)$/', $key) ? sprintf('%s/%s', $this->getBaseDir(), 'lambdaphp.ini') : sprintf('%s/%s', $this->getAwsDir(), preg_match('/key|secret/', $key) ? 'credentials' : 'config');
-        }
-
         public function setAwsConfig(array $conf) {
             foreach ($conf as $key => $value) {
                 $this->updateIniFile($this->getConfigFile($key), ['default' => [$this->mapKey($key) => $value]]);
             }
 
             return $conf;
+        }
+
+        public function getIniFile() {
+            return sprintf('%s/%s', $this->getBaseDir(), 'lambdaphp.ini');
+        }
+
+        public function getJobs() {
+            if ($file = realpath($this->getIniFile())) {
+                if ($data = $this->reader->readFile($file)) {
+                    foreach ($data['crontab'] as $name => $value) {
+                        @list($cron, $path, $state) = preg_split('/,\s*/', $value, 3);
+                        $jobs[] = @['name' => $name, 'schedule' => $cron, 'path' => $path, 'state' => preg_match('/^disabled/i', $state) ? 'DISABLED' : 'ENABLED'];
+                    }
+                }
+            }
+
+            return $jobs ?? [];
         }
 
         public function getAwsConfig() {
@@ -61,22 +75,26 @@ namespace Console\App {
             return $conf;
         }
 
-        protected function getAwsDir() {
-            $dir = isset($_SERVER['HOME']) ? $_SERVER['HOME'] : (isset($_SERVER['HOMEPATH']) ? sprintf('%s/%s', $_SERVER['HOMEDRIVE'], $_SERVER['HOMEPATH']) : posix_getpwuid(posix_getuid()));
-            $aws = sprintf('%s/.aws', realpath($dir) ?: $this->getBaseDir());
-
-            if (!is_dir($aws)) {
-                mkdir($aws, 0777, true);
-            }
-
-            return realpath($aws);
-        }
-
         /**
          * @return string
          */
         public function getBaseDir(): string {
             return $this->baseDir;
+        }
+
+        protected function getConfigFile(string $key) {
+            return preg_match('/^(name|ram)$/', $key) ? $this->getIniFile() : sprintf('%s/%s', $this->getAwsDir(), preg_match('/key|secret/', $key) ? 'credentials' : 'config');
+        }
+
+        protected function getAwsDir() {
+            $dir = isset($_SERVER['HOME']) ? $_SERVER['HOME'] : (isset($_SERVER['HOMEPATH']) ? sprintf('%s/%s', $_SERVER['HOMEDRIVE'], $_SERVER['HOMEPATH']) : posix_getpwuid(posix_getuid()));
+            $aws = sprintf('%s/.aws', realpath($dir) ?: $this->getBaseDir());
+
+            if (!is_dir($aws)) {
+                mkdir($aws, 0777, TRUE);
+            }
+
+            return realpath($aws);
         }
 
         private function updateIniFile($iniFile, $newValues) {

@@ -9,6 +9,7 @@
 namespace Console\Command {
 
     use Aws\ApiGateway\ApiGatewayClient;
+    use Aws\CloudWatchEvents\CloudWatchEventsClient;
     use Aws\DynamoDb\DynamoDbClient;
     use Aws\Iam\IamClient;
     use Aws\Lambda\LambdaClient;
@@ -31,8 +32,10 @@ namespace Console\Command {
 
         /**
          * Deploy constructor.
-         * @param Config $config
+         *
+         * @param Config   $config
          * @param ZipMaker $zipMaker
+         *
          * @internal param Finder $finder
          */
         public function __construct(Config $config, ZipMaker $zipMaker) {
@@ -51,7 +54,7 @@ namespace Console\Command {
 
         protected function execute(InputInterface $input, OutputInterface $output) {
             if ($dir = $this->config->getBaseDir()) {
-                $phpFiles = (new Finder())->in($dir)->notPath("(^vendor)")->ignoreUnreadableDirs();
+                $phpFiles = (new Finder())->in($dir)->notPath("vendor/aws/aws-sdk-php")->notPath("(^vendor)")->ignoreUnreadableDirs();
                 $debug = function ($msg) use ($output) {
                     if ($output->isVerbose()) {
                         $output->writeln($msg);
@@ -60,7 +63,7 @@ namespace Console\Command {
 
                 $debug('Creating zip file');
 
-                if ($zipFile = $this->zipMaker->createZipFile(array_merge(iterator_to_array($phpFiles)), "payload.zip", true)) {
+                if ($zipFile = $this->zipMaker->createZipFile(array_merge(iterator_to_array($phpFiles)), "payload.zip", TRUE)) {
                     $debug('Gathering AWS credentials');
 
                     while ($config = $this->config->getAwsConfig()) {
@@ -89,8 +92,8 @@ namespace Console\Command {
 
                         $lambdaClient->updateFunctionCode([
                             'FunctionName' => $fn,
-                            'ZipFile' => file_get_contents($zipFile),
-                            'Publish' => true,
+                            'ZipFile'      => file_get_contents($zipFile),
+                            'Publish'      => TRUE,
                         ]);
                     } catch (\Exception $e) {
                         $debug("Setting up IAM permissions");
@@ -105,14 +108,14 @@ namespace Console\Command {
                             $debug("Creating new IAM role");
 
                             $baseTrustPolicy = [
-                                'Version' => '2012-10-17',
+                                'Version'   => '2012-10-17',
                                 'Statement' => [
                                     [
-                                        'Effect' => 'Allow',
+                                        'Effect'    => 'Allow',
                                         'Principal' => [
                                             'Service' => 'lambda.amazonaws.com',
                                         ],
-                                        'Action' => 'sts:AssumeRole',
+                                        'Action'    => 'sts:AssumeRole',
                                     ],
                                 ],
                             ];
@@ -173,8 +176,8 @@ namespace Console\Command {
 
                             $iam->putRolePolicy([
                                 'PolicyDocument' => $policy, // REQUIRED
-                                'PolicyName' => "{$fn}Policy", // REQUIRED
-                                'RoleName' => $role, // REQUIRED
+                                'PolicyName'     => "{$fn}Policy", // REQUIRED
+                                'RoleName'       => $role, // REQUIRED
                             ]);
                         }
 
@@ -182,24 +185,72 @@ namespace Console\Command {
 
                         $func = $lambdaClient->createFunction([
                             'FunctionName' => $fn,
-                            'Runtime' => 'nodejs6.10',
-                            'Role' => $roleObj->get('Role')['Arn'],
-                            'Handler' => 'index.handler',
-                            'Code' => [
+                            'Runtime'      => 'nodejs6.10',
+                            'Role'         => $roleObj->get('Role')['Arn'],
+                            'Handler'      => 'index.handler',
+                            'Code'         => [
                                 'ZipFile' => file_get_contents($zipFile),
                             ],
-                            'Timeout' => 60,
-                            'MemorySize' => round((($config['ram'] ?? 0) >= 128) ? $config['ram'] : 128),
-                            'Publish' => true,
+                            'Timeout'      => 60,
+                            'MemorySize'   => round((($config['ram'] ?? 0) >= 128) ? $config['ram'] : 128),
+                            'Publish'      => TRUE,
                         ]);
 
                         $debug("Setting permissions for lambda function");
 
                         $lambdaClient->addPermission([
                             'FunctionName' => $fn,
-                            'StatementId' => 'ManagerInvokeAccess',
-                            'Action' => 'lambda:InvokeFunction',
-                            'Principal' => 'apigateway.amazonaws.com',
+                            'StatementId'  => 'ManagerInvokeAccess',
+                            'Action'       => 'lambda:InvokeFunction',
+                            'Principal'    => 'apigateway.amazonaws.com',
+                        ]);
+                    }
+
+                    $jobs = $this->config->getJobs();
+                    $cloudWatchEventsClient = new CloudWatchEventsClient($args);
+                    $result = $cloudWatchEventsClient->ListRuleNamesByTarget(['TargetArn' => $func['FunctionArn'],]);
+                    $cwPrefix = function ($name) use ($config) { return sprintf('LambdaPHP-cron-%s-%s', $config['name'], $name); };
+
+                    foreach ($result->get('RuleNames') as $ruleName) {
+                        $found = FALSE;
+
+                        foreach ($jobs as $job) {
+                            if ($cwPrefix($job['name']) === $ruleName) {
+                                $found = TRUE;
+                                break;
+                            }
+                        }
+
+                        if (!$found) {
+                            $debug("Deleting cron job: $ruleName");
+
+                            $result = $cloudWatchEventsClient->listTargetsByRule(['Rule' => $ruleName]);
+                            $targets = array_map(function ($t) { return $t['Id']; }, $result->get('Targets') ?? []);
+                            if (!empty($targets)) {
+                                $cloudWatchEventsClient->removeTargets(['Ids' => $targets, 'Rule' => $ruleName]);
+                            }
+
+                            $cloudWatchEventsClient->deleteRule(['Name' => $ruleName]);
+                        }
+                    }
+
+                    foreach ($jobs as $job) {
+                        $debug("Creating/Updating cron job: " . $job['name']);
+
+                        $cwName = $cwPrefix($job['name']);
+                        $rule = $cloudWatchEventsClient->putRule([
+                            'Name'               => $cwName, // REQUIRED
+                            'ScheduleExpression' => $job['schedule'],
+                            'State'              => $job['state'],
+                        ]);
+
+                        $result = $cloudWatchEventsClient->putTargets([
+                            'Rule'    => $cwName,
+                            'Targets' => [[
+                                'Arn'   => $func['FunctionArn'],
+                                'Id'    => $config['name'],
+                                'Input' => json_encode(['path' => $job['path'], 'cron' => TRUE]),
+                            ]],
                         ]);
                     }
 
@@ -208,24 +259,24 @@ namespace Console\Command {
                     $dynamoDbClient = new DynamoDbClient($args);
                     try {
                         $dynamoDbClient->createTable($params = [
-                            'TableName' => 'lambda_sessions',
+                            'TableName'             => 'lambda_sessions',
                             'ProvisionedThroughput' => [
-                                'ReadCapacityUnits' => 5,
-                                'WriteCapacityUnits' => 5,
+                                'ReadCapacityUnits'  => 1,
+                                'WriteCapacityUnits' => 1,
                             ],
-                            'AttributeDefinitions' => [
+                            'AttributeDefinitions'  => [
                                 [
                                     'AttributeName' => 'id',
                                     'AttributeType' => 'S',
                                 ],
                             ],
-                            'KeySchema' => [
+                            'KeySchema'             => [
                                 [
                                     'AttributeName' => 'id',
-                                    'KeyType' => 'HASH',
+                                    'KeyType'       => 'HASH',
                                 ],
                             ],
-                            'ua.append' => 'SES',
+                            'ua.append'             => 'SES',
                         ]);
                     } catch (\Throwable $e) {
                     }
@@ -261,7 +312,7 @@ namespace Console\Command {
                             $debug('Deleting REST API (your URL will change)');
 
                             $apiClient->deleteRestApi(['restApiId' => $apiId]);
-                            $apiId = null;
+                            $apiId = NULL;
                         }
                     }
 
@@ -278,20 +329,20 @@ namespace Console\Command {
                             $debug("Creating API methods for $parentId");
 
                             $apiClient->putMethod([
-                                'apiKeyRequired' => false,
+                                'apiKeyRequired'    => FALSE,
                                 'authorizationType' => 'NONE',
-                                'httpMethod' => 'ANY',
-                                'resourceId' => $parentId,
-                                'restApiId' => $apiId,
+                                'httpMethod'        => 'ANY',
+                                'resourceId'        => $parentId,
+                                'restApiId'         => $apiId,
                             ]);
 
                             $apiClient->putIntegration([
-                                'httpMethod' => 'ANY',
-                                'resourceId' => $parentId,
-                                'restApiId' => $apiId,
-                                'type' => 'AWS_PROXY',
+                                'httpMethod'            => 'ANY',
+                                'resourceId'            => $parentId,
+                                'restApiId'             => $apiId,
+                                'type'                  => 'AWS_PROXY',
                                 'integrationHttpMethod' => 'POST',
-                                'uri' => sprintf('arn:aws:apigateway:%s:lambda:path/2015-03-31/functions/%s/invocations', $config['region'], $func['FunctionArn']),
+                                'uri'                   => sprintf('arn:aws:apigateway:%s:lambda:path/2015-03-31/functions/%s/invocations', $config['region'], $func['FunctionArn']),
                             ]);
                         };
 
@@ -309,8 +360,8 @@ namespace Console\Command {
 
                         if (!empty($parentId)) {
                             $result = $apiClient->createResource([
-                                'parentId' => $parentId,
-                                'pathPart' => '{proxy+}',
+                                'parentId'  => $parentId,
+                                'pathPart'  => '{proxy+}',
                                 'restApiId' => $apiId,
                             ]);
 
