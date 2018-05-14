@@ -52,9 +52,11 @@ namespace Console\App {
         public function getJobs() {
             if ($file = realpath($this->getIniFile())) {
                 if ($data = $this->reader->readFile($file)) {
-                    foreach ($data['crontab'] as $name => $value) {
-                        @list($cron, $path, $state) = preg_split('/,\s*/', $value, 3);
-                        $jobs[] = @['name' => $name, 'schedule' => $cron, 'path' => $path, 'state' => preg_match('/^disabled/i', $state) ? 'DISABLED' : 'ENABLED'];
+                    if (!empty($data['crontab'])) {
+                        foreach ($data['crontab'] as $name => $value) {
+                            @list($cron, $path, $state) = preg_split('/,\s*/', $value, 3);
+                            $jobs[] = @['name' => $name, 'schedule' => $cron, 'path' => $path, 'state' => preg_match('/^disabled/i', $state) ? 'DISABLED' : 'ENABLED'];
+                        }
                     }
                 }
             }

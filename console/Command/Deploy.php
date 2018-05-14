@@ -302,7 +302,7 @@ namespace Console\Command {
                                 $debug('Found previous REST API');
 
                                 if ($stage[0]['stageName'] == 'web') {
-                                    $uri = sprintf('https://%s.execute-api.us-east-1.amazonaws.com/%s', $apiId, 'web');
+                                    $uri = sprintf('https://%s.execute-api.%s.amazonaws.com/%s', $apiId, $config['region'], 'web');
                                     break;
                                 }
                             }
@@ -371,7 +371,7 @@ namespace Console\Command {
                         $debug("Creating deployment for Rest API");
 
                         $apiClient->createDeployment(['restApiId' => $apiId, 'stageName' => 'web',]);
-                        $uri = sprintf('https://%s.execute-api.us-east-1.amazonaws.com/%s', $apiId, 'web');
+                        $uri = sprintf('https://%s.execute-api.%s.amazonaws.com/%s', $apiId, $config['region'], 'web');
                     }
 
                     if (!empty($uri)) {
