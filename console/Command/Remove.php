@@ -120,6 +120,15 @@ namespace Console\Command {
             try {
                 $debug("Removing lambda function");
                 $lambdaClient->deleteFunction(['FunctionName' => $fn]);
+                $result = $lambdaClient->listLayerVersions([
+                    'CompatibleRuntime' => 'nodejs8.10',
+                    'LayerName'         => "layer-$fn",
+                ]);
+
+                foreach ($result->get('LayerVersions') as $layer) {
+                    $debug("Removing lambda layer: layer-$fn@" . $layer['Version']);
+                    $lambdaClient->deleteLayerVersion(['LayerName' => "layer-$fn", 'VersionNumber' => $layer['Version']]);
+                }
             } catch (\Exception $e) {
             }
 
