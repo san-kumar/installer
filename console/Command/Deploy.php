@@ -111,7 +111,12 @@ namespace Console\Command {
 
                         if (!empty($layerArn = $result->get("LayerVersionArn"))) {
                             $Layers[] = $layerArn;
-                            $lambdaClient->deleteFunction(['FunctionName' => $fn]);
+
+                            try {
+                                $lambdaClient->deleteFunction(['FunctionName' => $fn]);
+                            } catch (\Throwable $e) {
+                                //maybe first timer?
+                            }
                         }
                     } else {
                         $Layers[] = $layerArn;
