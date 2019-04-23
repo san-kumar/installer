@@ -8,6 +8,10 @@
 namespace Console\Utils {
 
     use Console\App\Config;
+    use const DIRECTORY_SEPARATOR;
+    use function dirname;
+    use RecursiveDirectoryIterator;
+    use RecursiveIteratorIterator;
     use Symfony\Component\Finder\SplFileInfo;
     use ZipArchive;
 
@@ -19,44 +23,65 @@ namespace Console\Utils {
 
         /**
          * ZipMaker constructor.
+         *
          * @param Config $config
          */
         public function __construct(Config $config) {
             $this->config = $config;
         }
 
-        public function createZipFile(array $files, string $name = "payload.zip", bool $withWrapper = false) {
-            $zip = new ZipArchive;
-            $tmpDir = sys_get_temp_dir();
-            $zipFile = "$tmpDir/$name";
-            $wrapperZip = sprintf('%s/../../wrapper/wrapper.zip', __DIR__); #faster than creating it!
+        public function zipDir($public, $withVendor) {
+            try {
+                $self = realpath(sprintf('%s/../../wrapper', __DIR__));
+                $userVendor = realpath("$public/vendor");
 
-            if ($withWrapper) {
-                foreach (glob(dirname($wrapperZip) . "/*") as $file) {
-                    if (is_file($file) && (!preg_match('/^(php|wrapper\.zip)/', basename($file)))) {
-                        array_unshift($files, new SplFileInfo($file, "", basename($file)));
+                $vendorZipPath = tempnam(sys_get_temp_dir(), 'zip') . '.zip';
+                $publicZipPath = tempnam(sys_get_temp_dir(), 'zip') . '.zip';
+
+                $publicZip = new ZipArchive();
+                $res = $publicZip->open($publicZipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+                if (!is_dir($userVendor)) {
+                    copy("$self/vendor.zip", $vendorZipPath);
+                } else {
+                    if (!is_dir("$userVendor/aws/aws-sdk-php")) {
+                        exit("Please install AWS SDK in your $public (composer require aws/aws-sdk-php)");
                     }
-                }
-            }
 
-            copy($wrapperZip, $zipFile);
-            $res = $zip->open($zipFile);
-
-            if ($res === true) {
-                /** @var SplFileInfo $file */
-                foreach ($files as $file) {
-                    if (!$file->isDir()) {
-                        #echo $file->getRealPath(), "\n";
-                        $zip->addFile($file->getRealPath(), strtr($file->getRelativePathname(), ['\\' => '/']));
-                    }
+                    $vendorZip = new ZipArchive();
+                    $vendorZip->open($vendorZipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
                 }
 
-                $zip->close();
+                if ($res === TRUE) {
+                    foreach (glob("$self/*") as $file) {
+                        if (!preg_match('/.zip$/', $file))
+                            $publicZip->addFile($file, basename($file));
+                    }
 
-                return $zipFile;
+                    /** @var SplFileInfo[] $files */
+                    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($public), RecursiveIteratorIterator::LEAVES_ONLY);
+
+                    foreach ($files as $name => $file) {
+                        if (!$file->isDir()) {
+                            $filePath = $file->getRealPath();
+                            $relativePath = strtr(substr($filePath, strlen($public) + 1), ['\\' => '/']);
+
+                            if (preg_match('#^vendor/#', $relativePath)) {
+                                if ($withVendor)
+                                    $vendorZip->addFile($filePath, $relativePath);
+                            } else {
+                                $publicZip->addFile($filePath, $relativePath);
+                            }
+                        }
+                    }
+
+                    $publicZip->close();
+                    if (!empty($vendorZip)) $vendorZip->close();
+                }
+            } catch (\Exception $e) {
             }
 
-            return false;
+            return filesize($publicZipPath) > 0 ? [$publicZipPath, $vendorZipPath] : FALSE;
         }
     }
 }

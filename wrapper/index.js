@@ -8,13 +8,21 @@ let fs = require('fs');
 
 exports.handler = function (event, context) {
     try {
-        let strToReturn = '';
+        let strToReturn = '', strErr = '';
         let env = environment.parse(event);
         let ext = env.SCRIPT_EXT;
 
         if (ext === 'php') {
-            let proc = child_process.spawn('./php', [{stdio: 'inherit'}], {env: env});
+            let proc = child_process.spawn('/opt/php-cgi', ['-c /opt/php.ini'], {cwd: '/opt', env: env, stdio: ['pipe', 'pipe', 'pipe', 'pipe']}); //-c /opt/php.ini
             let body;
+
+            proc.stdout.on('data', function (data) {
+                strToReturn += data.toString();
+            });
+
+            proc.stderr.on('data', function (data) {
+                strErr += data.toString();
+            });
 
             if (event.body && (event.body.length > 0)) {
                 body = event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('binary') : event.body;
@@ -23,13 +31,10 @@ exports.handler = function (event, context) {
                 proc.stdin.end();
             }
 
-            proc.stdout.on('data', function (data) {
-                strToReturn += data.toString();
-            });
-
             proc.on('close', function (code) {
                 if (code !== 0) {
-                    return context.done(new Error("Process exited with non-zero status code"));
+                    //return context.done(new Error("Process exited with non-zero status code: " + strErr + strToReturn));
+                    return context.succeed({statusCode: 200, body: 'php error: ' + strErr + ' (' + strToReturn + ')'});
                 }
 
                 let [header, content] = splitter.split(strToReturn, "\r\n\r\n");
@@ -68,6 +73,6 @@ exports.handler = function (event, context) {
             //context.succeed({statusCode: 200, body: JSON.stringify(reply)});
         }
     } catch (e) {
-        context.succeed({statusCode: 200, body: 'error'});
+        context.succeed({statusCode: 200, body: 'error: ' + e.toString()});
     }
 };

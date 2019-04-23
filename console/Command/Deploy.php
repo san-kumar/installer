@@ -15,6 +15,9 @@ namespace Console\Command {
     use Aws\Lambda\LambdaClient;
     use Console\App\Config;
     use Console\Utils\ZipMaker;
+    use function file_exists;
+    use function file_get_contents;
+    use function filesize;
     use Symfony\Component\Console\Command\Command;
     use Symfony\Component\Console\Input\InputInterface;
     use Symfony\Component\Console\Output\OutputInterface;
@@ -54,45 +57,74 @@ namespace Console\Command {
 
         protected function execute(InputInterface $input, OutputInterface $output) {
             if ($dir = $this->config->getBaseDir()) {
-                $phpFiles = (new Finder())->in($dir)->notPath("vendor/aws/aws-sdk-php")->notPath("(^vendor)")->ignoreUnreadableDirs();
-                $debug = function ($msg) use ($output) {
-                    if ($output->isVerbose()) {
-                        $output->writeln($msg);
+                $debug = function ($msg) use ($output) { $output->isVerbose() ? $output->writeln($msg) : NULL; };
+                $public = "$dir/public";
+
+                $Layers[] = $this->config->getPhpLayerArn('arn:aws:lambda:us-east-1:322173628904:layer:php:10');
+
+                $debug('Gathering AWS credentials');
+
+                while ($config = $this->config->getAwsConfig()) {
+                    if (empty($config['key']) || empty($config['secret'])) {
+                        $output->writeln("Please configure AWS credentials before deployment!\n");
+                        $command = $this->getApplication()->find('config');
+                        $command->run($input, $output);
+                    } else {
+                        break;
                     }
-                };
+                }
 
-                $debug('Creating zip file');
+                $args = ['credentials' => ['key' => $config['key'], 'secret' => $config['secret'],], 'region' => $config['region'], 'version' => 'latest'];
+                $fn = $config['name'];
 
-                if ($zipFile = $this->zipMaker->createZipFile(array_merge(iterator_to_array($phpFiles)), "payload.zip", TRUE)) {
-                    $debug('Gathering AWS credentials');
+                if (!preg_match('/^[a-zA-Z0-9\_]{3,}$/', $fn)) {
+                    throw new \Exception("\"$fn\" is not a valid project name.\nProject name must be alphanumeric (i.e. A-Z, 0-9, _).\nPlease change $dir/lambdaphp.ini to update project name\n\n");
+                }
 
-                    while ($config = $this->config->getAwsConfig()) {
-                        if (empty($config['key']) || empty($config['secret'])) {
-                            $output->writeln("Please configure AWS credentials before deployment!\n");
-                            $command = $this->getApplication()->find('config');
-                            $command->run($input, $output);
-                        } else {
-                            break;
+                $lambdaClient = new LambdaClient($args);
+                $composer = realpath("$public/composer.lock");
+                $availableLayers = $lambdaClient->listLayers(['CompatibleRuntime' => 'nodejs8.10',]);
+
+                list($vendorLayerName, $vendorLayerId) = ["layer-$fn", $composer ? md5(file_get_contents($composer)) : 'stock'];
+
+                foreach ($availableLayers->get('Layers') as $layerInfo) {
+                    if ($layerInfo['LayerName'] === $vendorLayerName) {
+                        $layerArn = @($layerInfo["LatestMatchingVersion"]["LayerVersionArn"]);
+                        $layerId = @($layerInfo["LatestMatchingVersion"]["Description"]);
+                    }
+                }
+
+                $updateVendor = @((empty($layerArn) || empty($layerId) || ($layerId !== $vendorLayerId)));
+
+                if (list($publicZip, $vendorZip) = $this->zipMaker->zipDir($public, $updateVendor)) {
+                    $debug("Created zip: $publicZip, $vendorZip");
+
+                    if ($updateVendor) {
+                        $debug("Creating vendor layer: $vendorLayerName:$vendorLayerId");
+
+                        $result = $lambdaClient->publishLayerVersion([
+                            'LayerName'          => $vendorLayerName,
+                            'Description'        => $vendorLayerId,
+                            'CompatibleRuntimes' => ['nodejs8.10'],
+                            'Content'            => ['ZipFile' => file_get_contents($vendorZip)],
+                        ]);
+
+                        if (!empty($layerArn = $result->get("LayerVersionArn"))) {
+                            $Layers[] = $layerArn;
+                            $lambdaClient->deleteFunction(['FunctionName' => $fn]);
                         }
+                    } else {
+                        $Layers[] = $layerArn;
                     }
-
-                    $args = ['credentials' => ['key' => $config['key'], 'secret' => $config['secret'],], 'region' => $config['region'], 'version' => 'latest'];
-                    $fn = $config['name'];
-
-                    if (!preg_match('/^[a-zA-Z0-9\_]{3,}$/', $fn)) {
-                        throw new \Exception("\"$fn\" is not a valid project name.\nProject name must be alphanumeric (i.e. A-Z, 0-9, _).\nPlease change $dir/lambdaphp.ini to update project name\n\n");
-                    }
-
-                    $lambdaClient = new LambdaClient($args);
 
                     try {
                         $result = $lambdaClient->getFunction(['FunctionName' => $fn]);
                         $func = $result->get('Configuration');
-                        $debug("Updating lambda function (this may take a while)");
+                        $debug(sprintf("Updating lambda function: %.02f Kb (this may take a while)", filesize($publicZip) / 1024));
 
                         $lambdaClient->updateFunctionCode([
                             'FunctionName' => $fn,
-                            'ZipFile'      => file_get_contents($zipFile),
+                            'ZipFile'      => file_get_contents($publicZip),
                             'Publish'      => TRUE,
                         ]);
                     } catch (\Exception $e) {
@@ -153,6 +185,13 @@ namespace Console\Command {
                                 {
                                   "Effect": "Allow",
                                   "Action": [
+                                    "polly:*"
+                                  ],
+                                  "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
                                     "cognito-identity:*"
                                   ],
                                   "Resource": "*"
@@ -179,18 +218,20 @@ namespace Console\Command {
                                 'PolicyName'     => "{$fn}Policy", // REQUIRED
                                 'RoleName'       => $role, // REQUIRED
                             ]);
+
+                            $debug("waiting for IAM permissions to propagate (one time only)");
+                            sleep(10); //aws bug (https://stackoverflow.com/a/37438525/1031454)
                         }
 
                         $debug("Creating new lambda function (this may take a while)");
 
                         $func = $lambdaClient->createFunction([
                             'FunctionName' => $fn,
-                            'Runtime'      => 'nodejs6.10',
+                            'Runtime'      => 'nodejs8.10',
                             'Role'         => $roleObj->get('Role')['Arn'],
                             'Handler'      => 'index.handler',
-                            'Code'         => [
-                                'ZipFile' => file_get_contents($zipFile),
-                            ],
+                            'Code'         => ['ZipFile' => file_get_contents($publicZip),],
+                            'Layers'       => $Layers,
                             'Timeout'      => 60,
                             'MemorySize'   => round((($config['ram'] ?? 0) >= 128) ? $config['ram'] : 128),
                             'Publish'      => TRUE,

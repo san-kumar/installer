@@ -49,19 +49,38 @@ namespace Console\App {
             return sprintf('%s/%s', $this->getBaseDir(), 'lambdaphp.ini');
         }
 
-        public function getJobs() {
+        public function getIniFileData() {
             if ($file = realpath($this->getIniFile())) {
                 if ($data = $this->reader->readFile($file)) {
-                    if (!empty($data['crontab'])) {
-                        foreach ($data['crontab'] as $name => $value) {
-                            @list($cron, $path, $state) = preg_split('/,\s*/', $value, 3);
-                            $jobs[] = @['name' => $name, 'schedule' => $cron, 'path' => $path, 'state' => preg_match('/^disabled/i', $state) ? 'DISABLED' : 'ENABLED'];
-                        }
+                    return $data;
+                }
+            }
+
+            return FALSE;
+        }
+
+
+        public function getJobs() {
+            if ($data = $this->getIniFileData()) {
+                if (!empty($data['crontab'])) {
+                    foreach ($data['crontab'] as $name => $value) {
+                        @list($cron, $path, $state) = preg_split('/,\s*/', $value, 3);
+                        $jobs[] = @['name' => $name, 'schedule' => $cron, 'path' => $path, 'state' => preg_match('/^disabled/i', $state) ? 'DISABLED' : 'ENABLED'];
                     }
                 }
             }
 
             return $jobs ?? [];
+        }
+
+        public function getPhpLayerArn($default) {
+            if ($data = $this->getIniFileData()) {
+                if (!empty($data['php'])) {
+                    return @($data['php']['layerArn'] ?: $default);
+                }
+            }
+
+            return $default;
         }
 
         public function getAwsConfig() {

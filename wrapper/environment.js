@@ -9,7 +9,7 @@ module.exports.parse = function (event) {
         headers: {Host: 'localhost'}
     }, event);
 
-    let root = __dirname + '/public';
+    let root = '/var/task';
     let uri = ev.path || '';
     let file = root + '/' + uri.replace(/^\//, '');
 
