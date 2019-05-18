@@ -84,7 +84,8 @@ namespace Console\App {
         }
 
         public function getAwsConfig() {
-            $conf = ['key' => getenv('AWS_ACCESS_KEY_ID') ?: '', 'secret' => getenv('AWS_SECRET_ACCESS_KEY') ?: '', 'region' => 'us-east-1', 'name' => basename($this->getBaseDir()), 'ram' => 128];
+            $conf = ['key' => getenv('AWS_ACCESS_KEY_ID') ?: '', 'secret' => getenv('AWS_SECRET_ACCESS_KEY') ?: '',
+                     'region' => getenv('AWS_REGION') ?? 'us-east-1', 'name' => basename($this->getBaseDir()), 'ram' => 128];
 
             foreach ($conf as $key => $value) {
                 if ($file = realpath($this->getConfigFile($key))) {

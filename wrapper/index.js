@@ -13,7 +13,7 @@ exports.handler = function (event, context) {
         let ext = env.SCRIPT_EXT;
 
         if (ext === 'php') {
-            let proc = child_process.spawn('/opt/php-cgi', ['-c /opt/php.ini'], {cwd: '/opt', env: env, stdio: ['pipe', 'pipe', 'pipe', 'pipe']}); //-c /opt/php.ini
+            let proc = child_process.spawn('/opt/php-cgi', ['-c=/opt/php.ini'], {cwd: '/opt', env: env, stdio: ['pipe', 'pipe', 'pipe', 'pipe']}); //-c /opt/php.ini
             let body;
 
             proc.stdout.on('data', function (data) {
