@@ -15,13 +15,12 @@ namespace Console\Command {
     use Aws\Lambda\LambdaClient;
     use Console\App\Config;
     use Console\Utils\ZipMaker;
-    use function file_exists;
-    use function file_get_contents;
-    use function filesize;
     use Symfony\Component\Console\Command\Command;
     use Symfony\Component\Console\Input\InputInterface;
+    use Symfony\Component\Console\Input\InputOption;
     use Symfony\Component\Console\Output\OutputInterface;
-    use Symfony\Component\Finder\Finder;
+    use function file_get_contents;
+    use function filesize;
 
     class Deploy extends Command {
         /**
@@ -52,7 +51,8 @@ namespace Console\Command {
             $this
                 ->setName('deploy')
                 ->setDescription('Deploy all php files to AWS lambda and generate links')
-                ->setHelp('This command will deploy all your PHP files to AWS lambda and create web accessible links for them');
+                ->setHelp('This command will deploy all your PHP files to AWS lambda and create web accessible links for them')
+                ->addOption('rebuild', 'r', InputOption::VALUE_OPTIONAL, 'Force rebuild?');
         }
 
         protected function execute(InputInterface $input, OutputInterface $output) {
@@ -84,8 +84,9 @@ namespace Console\Command {
                 $lambdaClient = new LambdaClient($args);
                 $composer = realpath("$public/composer.lock");
                 $availableLayers = $lambdaClient->listLayers(['CompatibleRuntime' => 'nodejs8.10',]);
+                $vendorVersion = $input->getOption('rebuild') ? md5(microtime()) : ($composer ? md5(file_get_contents($composer)) : 'stock');
 
-                list($vendorLayerName, $vendorLayerId) = ["layer-$fn", $composer ? md5(file_get_contents($composer)) : 'stock'];
+                list($vendorLayerName, $vendorLayerId) = ["layer-$fn", $vendorVersion];
 
                 foreach ($availableLayers->get('Layers') as $layerInfo) {
                     if ($layerInfo['LayerName'] === $vendorLayerName) {
@@ -95,6 +96,10 @@ namespace Console\Command {
                 }
 
                 $updateVendor = @((empty($layerArn) || empty($layerId) || ($layerId !== $vendorLayerId)));
+
+                if ($updateVendor) {
+                    system(sprintf('cd "%s" && composer dumpautoload -o', $public));
+                }
 
                 if (list($publicZip, $vendorZip) = $this->zipMaker->zipDir($public, $updateVendor)) {
                     $debug("Created zip: $publicZip, $vendorZip");
@@ -214,6 +219,20 @@ namespace Console\Command {
                                     "cognito-idp:*"
                                   ],
                                   "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "transcribe:*"
+                                  ],
+                                  "Resource": "*"
+                                },
+                                {
+                                  "Effect": "Allow",
+                                  "Action": [
+                                    "ses:*"
+                                  ],
+                                  "Resource": "*"
                                 }
                               ]
                             }';
@@ -237,7 +256,7 @@ namespace Console\Command {
                             'Handler'      => 'index.handler',
                             'Code'         => ['ZipFile' => file_get_contents($publicZip),],
                             'Layers'       => $Layers,
-                            'Timeout'      => 60,
+                            'Timeout'      => $config['timeout'] ?? 60,
                             'MemorySize'   => round((($config['ram'] ?? 0) >= 128) ? $config['ram'] : 128),
                             'Publish'      => TRUE,
                         ]);
@@ -246,9 +265,16 @@ namespace Console\Command {
 
                         $lambdaClient->addPermission([
                             'FunctionName' => $fn,
-                            'StatementId'  => 'ManagerInvokeAccess',
+                            'StatementId'  => 'ApiInvokeAccess',
                             'Action'       => 'lambda:InvokeFunction',
                             'Principal'    => 'apigateway.amazonaws.com',
+                        ]);
+
+                        $lambdaClient->addPermission([
+                            'FunctionName' => $fn,
+                            'StatementId'  => "CronInvokeAccess",
+                            'Action'       => 'lambda:InvokeFunction',
+                            'Principal'    => 'events.amazonaws.com',
                         ]);
                     }
 

@@ -8,8 +8,6 @@
 namespace Console\Utils {
 
     use Console\App\Config;
-    use const DIRECTORY_SEPARATOR;
-    use function dirname;
     use RecursiveDirectoryIterator;
     use RecursiveIteratorIterator;
     use Symfony\Component\Finder\SplFileInfo;
@@ -63,8 +61,13 @@ namespace Console\Utils {
 
                     foreach ($files as $name => $file) {
                         if (!$file->isDir()) {
-                            $filePath = $file->getRealPath();
-                            $relativePath = strtr(substr($filePath, strlen($public) + 1), ['\\' => '/']);
+                            $filePath = $file->getPath() . '/' . $file->getBasename();
+
+                            $relativePath = substr($filePath, strlen($public) + 1);
+                            $relativePath = strtr($relativePath, ['\\' => '/']);
+
+                            if (preg_match('~/(test|\.\w+|tests)/~', $relativePath))
+                                continue;
 
                             if (preg_match('#^vendor/#', $relativePath)) {
                                 if ($withVendor)
@@ -75,6 +78,7 @@ namespace Console\Utils {
                         }
                     }
 
+                    $publicZip->addFromString('vendor/autoload.php', '<' . '?php require_once "/opt/vendor/autoload.php";');
                     $publicZip->close();
                     if (!empty($vendorZip)) $vendorZip->close();
                 }
